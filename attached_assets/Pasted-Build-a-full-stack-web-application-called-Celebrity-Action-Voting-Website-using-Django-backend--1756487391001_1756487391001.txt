@@ -1,0 +1,69 @@
+Build a full-stack web application called “Celebrity Action Voting Website” using Django (backend + admin) and React (frontend). Follow these specifications:
+
+1. **Overview**: 
+- Users can submit posts about celebrities, fictional characters, or politicians. Each post includes a name, image, and category.
+- Other users can interact with each post using predefined actions: slap, hug, kiss, love, hate.
+- No login is required; voting and posting are anonymous.
+- Admin can approve/reject posts and custom actions, delete any post, and manage all content.
+
+2. **Models / Database**:
+- Post: id, name, category (Film, Fictional, Political), image, status (pending/approved/rejected), created_at.
+- Action: id (randomized), name, approved (boolean). Default actions: slap, hug, kiss, love, hate. Users can suggest new actions, pending admin approval.
+- Vote: id, post_id, action_id, ip_address, created_at. Track votes anonymously by IP.
+
+3. **Features**:
+- Users:
+  - Submit new posts with CAPTCHA.
+  - Vote on actions per post (rate limit: max 5 votes per minute per IP).
+  - Search posts by name or category.
+  - View leaderboard sorted by any action (most slapped, most loved, etc.).
+  - View trending posts based on votes in the last 24 hours.
+- Admin:
+  - Approve/reject posts individually or in bulk.
+  - Approve/reject custom actions.
+  - Delete or edit any post or action.
+  - Monitor vote statistics (optional).
+
+4. **Anti-Bot / Security**:
+- Google reCAPTCHA v2 invisible on post submissions, action suggestions, and votes.
+- Randomized action IDs for vote endpoints.
+- Rate limiting per IP.
+- Use Cloudflare free tier to protect from DoS attacks.
+- Optional: validate uploaded images (type, size).
+
+5. **API Endpoints** (examples):
+- POST /api/posts/ → Submit a new post.
+- GET /api/posts/ → List approved posts.
+- POST /api/vote/{random_action_id}/ → Vote on a post’s action.
+- GET /api/leaderboard/?action=slap → Leaderboard by action.
+- GET /api/trending/ → Trending posts in last 24h.
+- GET /api/search/?q=NAME → Search posts.
+
+6. **Tech Stack & Hosting**:
+- Backend: Django + Django REST Framework
+- Frontend: React
+- Database: PostgreSQL (free tier)
+- Image Storage: Cloudinary free tier
+- Hosting: Render / Railway free tier for backend, Netlify / Vercel for frontend
+
+7. **Constraints**:
+- No user login; fully anonymous voting.
+- Admin-only content management.
+- Anti-bot measures are mandatory.
+- Use only free hosting and storage services.
+- Posts remain until manually deleted by admin.
+
+8. **Extra Fun Features**:
+- Users can suggest new actions pending admin approval.
+- Leaderboard and trending boards for engagement.
+- Show vote counts on each post dynamically.
+
+**Deliverables**:
+- Fully working Django backend with admin dashboard.
+- React frontend integrated with Django REST API.
+- Image upload system for posts.
+- Voting system with anti-bot measures.
+- Leaderboard, trending, and search functionality.
+- All deployed on free hosting with proper URL endpoints.
+
+Generate the full project code, folder structure, and instructions to run locally and deploy.
