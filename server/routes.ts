@@ -10,6 +10,7 @@ import { z } from "zod";
 import { db } from "./db";
 import bcrypt from 'bcrypt';
 import { eq } from "drizzle-orm";
+import { v2 as cloudinary } from 'cloudinary';
 
 // Allowed image mime types and extension mapping
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
@@ -25,23 +26,18 @@ const MIME_EXT: Record<string, string> = {
   'image/webp': '.webp',
 };
 
-// Configure multer for image uploads (disk storage under uploads/images)
-const uploadDir = path.resolve(import.meta.dirname, '..', 'uploads', 'images');
-
-const storageEngine = multer.diskStorage({
-  destination: (req, file, cb) => {
-    fs.mkdir(uploadDir, { recursive: true }, (err) => cb(err as Error | null, uploadDir));
-  },
-  filename: (req, file, cb) => {
-    const mime = file.mimetype || '';
-    const mappedExt = MIME_EXT[mime] || path.extname(file.originalname).toLowerCase() || '.jpg';
-    const base = path
-      .basename(file.originalname, path.extname(file.originalname))
-      .replace(/[^a-zA-Z0-9-_]/g, '_');
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${base}-${unique}${mappedExt}`);
-  }
+// Cloudinary configuration (set CLOUDINARY_* env vars in Render)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME as string,
+  api_key: process.env.CLOUDINARY_API_KEY as string,
+  api_secret: process.env.CLOUDINARY_API_SECRET as string,
+  secure: true,
 });
+
+// Configure multer for image uploads (memory storage; upload buffer to Cloudinary)
+// Disk path kept for reference but not used on Render Free
+// const uploadDir = path.resolve(import.meta.dirname, '..', 'uploads', 'images');
+const storageEngine = multer.memoryStorage();
 
 const upload = multer({
   storage: storageEngine,
@@ -74,10 +70,18 @@ function getRequestOrigin(req: any): string {
   return `${proto}://${host}`;
 }
 
-// Simple image upload handler returning public URL for saved file
+// Simple image upload handler returning public URL for saved file (Cloudinary)
 async function uploadImage(file: Express.Multer.File): Promise<string> {
-  // File is already saved to disk by multer.diskStorage
-  return `/uploads/images/${file.filename}`;
+  return await new Promise((resolve, reject) => {
+    const upload = cloudinary.uploader.upload_stream(
+      { folder: 'celebrity-voting', resource_type: 'image' },
+      (err, result) => {
+        if (err || !result) return reject(err || new Error('Cloudinary upload failed'));
+        resolve(result.secure_url);
+      }
+    );
+    upload.end(file.buffer);
+  });
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -241,9 +245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Image is required' });
       }
 
-      const publicPath = await uploadImage(req.file);
-      const origin = getRequestOrigin(req);
-      const imageUrl = `${origin}${publicPath}`;
+      const imageUrl = await uploadImage(req.file);
 
       const post = await storage.createPost({
         ...validatedData,
