@@ -16,7 +16,7 @@ app.set('trust proxy', 1); // behind Render/Reverse proxies for correct secure c
 const PgStore = connectPgSimpleFactory(session);
 app.use(
   session({
-    store: new PgStore({ pool, tableName: "sessions" }),
+    store: new PgStore({ pool, tableName: "sessions", createTableIfMissing: true }),
     secret: process.env.SESSION_SECRET || "dev-secret-change-me",
     resave: false,
     saveUninitialized: false,

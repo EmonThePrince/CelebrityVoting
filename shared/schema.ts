@@ -9,6 +9,7 @@ import {
   text,
   timestamp,
   varchar,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -82,7 +83,7 @@ export const votes = pgTable("votes", {
   index("votes_ip_address_idx").on(table.ipAddress),
   index("votes_created_at_idx").on(table.createdAt),
   // Unique constraint to prevent duplicate votes from same IP on same post for same action
-  index("votes_unique_idx").on(table.postId, table.actionId, table.ipAddress),
+  uniqueIndex("votes_unique_idx").on(table.postId, table.actionId, table.ipAddress),
 ]);
 
 // Rate limiting table
