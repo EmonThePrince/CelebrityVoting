@@ -2,14 +2,17 @@ interface CategoryFilterProps {
   selectedCategory: string;
   onCategoryChange: (category: string) => void;
   stats?: { totalPosts: number; totalVotes: number };
+  categoryCounts?: Record<string, number>;
 }
 
-export default function CategoryFilter({ selectedCategory, onCategoryChange, stats }: CategoryFilterProps) {
+export default function CategoryFilter({ selectedCategory, onCategoryChange, stats, categoryCounts }: CategoryFilterProps) {
   const categories = [
-    { id: 'all', name: 'All', icon: 'fas fa-star', count: stats?.totalPosts || 0 },
-    { id: 'film', name: 'Film Stars', icon: 'fas fa-film', count: 0 }, // Would need separate API for category counts
-    { id: 'fictional', name: 'Fictional', icon: 'fas fa-mask', count: 0 },
-    { id: 'political', name: 'Political', icon: 'fas fa-landmark', count: 0 },
+    // Total posts uses backend stats when available; otherwise fall back to sum of categoryCounts
+    { id: 'all', name: 'All', icon: 'fas fa-star', count: stats?.totalPosts ?? (categoryCounts ? Object.values(categoryCounts).reduce((a, b) => a + b, 0) : null) },
+    // Use derived per-category counts from props; show placeholder when unavailable
+    { id: 'film', name: 'Film Stars', icon: 'fas fa-film', count: categoryCounts?.['film'] ?? null },
+    { id: 'fictional', name: 'Fictional', icon: 'fas fa-mask', count: categoryCounts?.['fictional'] ?? null },
+    { id: 'political', name: 'Political', icon: 'fas fa-landmark', count: categoryCounts?.['political'] ?? null },
   ];
 
   return (
@@ -34,7 +37,7 @@ export default function CategoryFilter({ selectedCategory, onCategoryChange, sta
                   ? 'bg-primary-foreground text-primary' 
                   : 'bg-card text-foreground'
               }`}>
-                {category.count}
+                {category.count === null ? '—' : category.count}
               </span>
             </button>
           ))}

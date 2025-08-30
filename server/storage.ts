@@ -4,8 +4,6 @@ import {
   actions,
   votes,
   rateLimits,
-  type User,
-  type UpsertUser,
   type Post,
   type InsertPost,
   type Action,
@@ -18,8 +16,8 @@ import { eq, and, desc, count, sql, gte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
-  getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  getUser(id: string): Promise<typeof users.$inferSelect | undefined>;
+  upsertUser(user: typeof users.$inferInsert): Promise<typeof users.$inferSelect>;
   
   // Post operations
   createPost(post: InsertPost): Promise<Post>;
@@ -34,11 +32,13 @@ export interface IStorage {
   createAction(action: InsertAction): Promise<Action>;
   updateActionApproval(id: string, approved: boolean): Promise<void>;
   getActionById(id: string): Promise<Action | undefined>;
+  deleteAction(id: string): Promise<void>;
   
   // Vote operations
   createVote(vote: InsertVote): Promise<Vote>;
   getPostVotes(postId: string): Promise<{ action: Action; count: number }[]>;
   hasUserVoted(postId: string, actionId: string, ipAddress: string): Promise<boolean>;
+  deleteVote(postId: string, actionId: string, ipAddress: string): Promise<void>;
   
   // Leaderboard operations
   getLeaderboard(actionId: string, limit?: number): Promise<{ post: Post; voteCount: number }[]>;
@@ -54,12 +54,12 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   // User operations
-  async getUser(id: string): Promise<User | undefined> {
+  async getUser(id: string): Promise<typeof users.$inferSelect | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
+  async upsertUser(userData: typeof users.$inferInsert): Promise<typeof users.$inferSelect> {
     const [user] = await db
       .insert(users)
       .values(userData)
@@ -80,8 +80,8 @@ export class DatabaseStorage implements IStorage {
     return newPost;
   }
 
-  async getPosts(status?: 'pending' | 'approved' | 'rejected', category?: string, limit = 20, offset = 0): Promise<Post[]> {
-    let query = db.select().from(posts);
+  async getPosts(status?: 'pending' | 'approved' | 'rejected', category?: string, limit = 20, offset = 0, action?: string, sort?: string): Promise<Post[]> {
+    let query = db.select().from(posts) as any;
     
     const conditions = [];
     if (status) {
@@ -95,6 +95,86 @@ export class DatabaseStorage implements IStorage {
       query = query.where(and(...conditions));
     }
     
+    // If action is specified, we need to join with votes and sort by action-specific votes
+    if (action) {
+      // Get the action ID for the specified action name
+      const allActions = await this.getActions(true);
+      const targetAction = allActions.find(a => a.name === action);
+      
+      if (!targetAction) {
+        // If action doesn't exist, return empty array
+        return [];
+      }
+      
+      // Use a proper SQL join to get posts with their vote counts for the specific action
+      const postsWithVotes = await db
+        .select({
+          post: posts,
+          voteCount: count(votes.id).as('voteCount'),
+        })
+        .from(posts)
+        .leftJoin(votes, and(
+          eq(posts.id, votes.postId),
+          eq(votes.actionId, targetAction.id)
+        ))
+        .where(and(
+          eq(posts.status, 'approved'),
+          ...(category ? [eq(posts.category, category as any)] : [])
+        ))
+        .groupBy(posts.id)
+        .orderBy(desc(count(votes.id)))
+        .limit(limit)
+        .offset(offset);
+      
+      return postsWithVotes.map(p => p.post);
+    }
+    
+    // Handle different sorting options
+    if (sort === 'votes') {
+      // Sort by total votes
+      const postsWithVotes = await db
+        .select({
+          post: posts,
+          voteCount: count(votes.id).as('voteCount'),
+        })
+        .from(posts)
+        .leftJoin(votes, eq(posts.id, votes.postId))
+        .where(and(
+          eq(posts.status, 'approved'),
+          ...(category ? [eq(posts.category, category as any)] : [])
+        ))
+        .groupBy(posts.id)
+        .orderBy(desc(count(votes.id)))
+        .limit(limit)
+        .offset(offset);
+      
+      return postsWithVotes.map(p => p.post);
+    } else if (sort === 'trending') {
+      // Sort by recent votes (last 24 hours)
+      const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const postsWithVotes = await db
+        .select({
+          post: posts,
+          voteCount: count(votes.id).as('voteCount'),
+        })
+        .from(posts)
+        .leftJoin(votes, and(
+          eq(posts.id, votes.postId),
+          gte(votes.createdAt, cutoffTime)
+        ))
+        .where(and(
+          eq(posts.status, 'approved'),
+          ...(category ? [eq(posts.category, category as any)] : [])
+        ))
+        .groupBy(posts.id)
+        .orderBy(desc(count(votes.id)))
+        .limit(limit)
+        .offset(offset);
+      
+      return postsWithVotes.map(p => p.post);
+    }
+    
+    // Default sorting by creation date
     return await query
       .orderBy(desc(posts.createdAt))
       .limit(limit)
@@ -131,7 +211,7 @@ export class DatabaseStorage implements IStorage {
 
   // Action operations
   async getActions(approved?: boolean): Promise<Action[]> {
-    let query = db.select().from(actions);
+    let query = db.select().from(actions) as any;
     
     if (approved !== undefined) {
       query = query.where(eq(actions.approved, approved));
@@ -154,6 +234,12 @@ export class DatabaseStorage implements IStorage {
   async getActionById(id: string): Promise<Action | undefined> {
     const [action] = await db.select().from(actions).where(eq(actions.id, id));
     return action;
+  }
+
+  async deleteAction(id: string): Promise<void> {
+    console.log(`Attempting to delete action with ID: ${id}`);
+    const result = await db.delete(actions).where(eq(actions.id, id));
+    console.log(`Delete action result:`, result);
   }
 
   // Vote operations
@@ -187,6 +273,16 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return !!vote;
+  }
+
+  async deleteVote(postId: string, actionId: string, ipAddress: string): Promise<void> {
+    await db.delete(votes).where(
+      and(
+        eq(votes.postId, postId),
+        eq(votes.actionId, actionId),
+        eq(votes.ipAddress, ipAddress)
+      )
+    );
   }
 
   // Leaderboard operations
@@ -278,10 +374,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(actions.approved, false));
 
     return {
-      totalPosts: totalPosts?.count || 0,
-      totalVotes: totalVotes?.count || 0,
-      pendingPosts: pendingPosts?.count || 0,
-      pendingActions: pendingActions?.count || 0,
+  totalPosts: Number((totalPosts?.count as any) || 0),
+  totalVotes: Number((totalVotes?.count as any) || 0),
+  pendingPosts: Number((pendingPosts?.count as any) || 0),
+  pendingActions: Number((pendingActions?.count as any) || 0),
     };
   }
 }

@@ -1,0 +1,947 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celebrity Action Voting - Vote on Your Favorites</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                borderRadius: {
+                    lg: "var(--radius)",
+                    md: "calc(var(--radius) - 2px)", 
+                    sm: "calc(var(--radius) - 4px)",
+                },
+                colors: {
+                    background: "var(--background)",
+                    foreground: "var(--foreground)",
+                    card: {
+                        DEFAULT: "var(--card)",
+                        foreground: "var(--card-foreground)",
+                    },
+                    popover: {
+                        DEFAULT: "var(--popover)",
+                        foreground: "var(--popover-foreground)",
+                    },
+                    primary: {
+                        DEFAULT: "var(--primary)",
+                        foreground: "var(--primary-foreground)",
+                    },
+                    secondary: {
+                        DEFAULT: "var(--secondary)",
+                        foreground: "var(--secondary-foreground)",
+                    },
+                    muted: {
+                        DEFAULT: "var(--muted)",
+                        foreground: "var(--muted-foreground)",
+                    },
+                    accent: {
+                        DEFAULT: "var(--accent)",
+                        foreground: "var(--accent-foreground)",
+                    },
+                    destructive: {
+                        DEFAULT: "var(--destructive)",
+                        foreground: "var(--destructive-foreground)",
+                    },
+                    border: "var(--border)",
+                    input: "var(--input)",
+                    ring: "var(--ring)",
+                }
+            },
+            fontFamily: {
+                sans: ["Inter", "var(--font-sans)"],
+                serif: ["var(--font-serif)"],
+                mono: ["var(--font-mono)"],
+            }
+        }
+    };
+    </script>
+    <style>
+        :root {
+            --background: hsl(210 40% 98%);
+            --foreground: hsl(222.2 84% 4.9%);
+            --card: hsl(0 0% 100%);
+            --card-foreground: hsl(222.2 84% 4.9%);
+            --popover: hsl(0 0% 100%);
+            --popover-foreground: hsl(222.2 84% 4.9%);
+            --primary: hsl(262.1 83.3% 57.8%);
+            --primary-foreground: hsl(210 40% 98%);
+            --secondary: hsl(24.6 95% 53.1%);
+            --secondary-foreground: hsl(210 40% 98%);
+            --muted: hsl(210 40% 96%);
+            --muted-foreground: hsl(215.4 16.3% 46.9%);
+            --accent: hsl(142.1 76.2% 36.3%);
+            --accent-foreground: hsl(210 40% 98%);
+            --destructive: hsl(0 84.2% 60.2%);
+            --destructive-foreground: hsl(210 40% 98%);
+            --border: hsl(214.3 31.8% 91.4%);
+            --input: hsl(214.3 31.8% 91.4%);
+            --ring: hsl(262.1 83.3% 57.8%);
+            --radius: 0.5rem;
+            --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+        }
+        
+        .dark {
+            --background: hsl(222.2 84% 4.9%);
+            --foreground: hsl(210 40% 98%);
+            --card: hsl(222.2 84% 4.9%);
+            --card-foreground: hsl(210 40% 98%);
+            --popover: hsl(222.2 84% 4.9%);
+            --popover-foreground: hsl(210 40% 98%);
+            --primary: hsl(262.1 83.3% 57.8%);
+            --primary-foreground: hsl(210 40% 98%);
+            --secondary: hsl(217.2 32.6% 17.5%);
+            --secondary-foreground: hsl(210 40% 98%);
+            --muted: hsl(217.2 32.6% 17.5%);
+            --muted-foreground: hsl(215 20.2% 65.1%);
+            --accent: hsl(217.2 32.6% 17.5%);
+            --accent-foreground: hsl(210 40% 98%);
+            --destructive: hsl(0 62.8% 30.6%);
+            --destructive-foreground: hsl(210 40% 98%);
+            --border: hsl(217.2 32.6% 17.5%);
+            --input: hsl(217.2 32.6% 17.5%);
+            --ring: hsl(262.1 83.3% 57.8%);
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .vote-button {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .vote-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+        }
+        
+        .trending-badge {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-background text-foreground min-h-screen">
+    
+    <!-- @COMPONENT: Header -->
+    <!-- Navigation Header -->
+    <header class="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- Logo -->
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-primary">🎭 CelebVote</h1>
+                </div>
+                
+                <!-- Search Bar -->
+                <div class="flex-1 max-w-lg mx-8">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            placeholder="Search celebrities, characters, politicians..."
+                            class="w-full px-4 py-2 pl-10 pr-4 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                            data-bind="searchQuery"
+                            data-event="input:handleSearch"
+                        >
+                        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground"></i>
+                    </div>
+                </div>
+                
+                <!-- Navigation Links -->
+                <nav class="hidden md:flex items-center space-x-6">
+                    <a href="#home" class="text-foreground hover:text-primary font-medium">Home</a>
+                    <a href="#trending" class="text-foreground hover:text-primary font-medium">Trending</a>
+                    <a href="#leaderboard" class="text-foreground hover:text-primary font-medium">Leaderboard</a>
+                    <button class="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors" data-event="click:openSubmissionModal">
+                        Submit Post
+                    </button>
+                </nav>
+                
+                <!-- Mobile Menu Button -->
+                <button class="md:hidden p-2" data-event="click:toggleMobileMenu">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+    <!-- @END_COMPONENT: Header -->
+
+    <!-- @COMPONENT: CategoryFilter -->
+    <!-- Category Filter Tabs -->
+    <div class="bg-card border-b border-border">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex space-x-8 overflow-x-auto py-4">
+                <button class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium whitespace-nowrap" data-event="click:filterByCategory" data-category="all">
+                    <i class="fas fa-star"></i>
+                    <span>All</span>
+                    <span class="bg-primary-foreground text-primary px-2 py-1 rounded-full text-xs font-bold" data-bind="totalCount" data-mock="true">247</span>
+                </button>
+                <button class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground font-medium transition-colors whitespace-nowrap" data-event="click:filterByCategory" data-category="film">
+                    <i class="fas fa-film"></i>
+                    <span>Film Stars</span>
+                    <span class="bg-card text-foreground px-2 py-1 rounded-full text-xs font-bold" data-bind="filmCount" data-mock="true">156</span>
+                </button>
+                <button class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground font-medium transition-colors whitespace-nowrap" data-event="click:filterByCategory" data-category="fictional">
+                    <i class="fas fa-mask"></i>
+                    <span>Fictional</span>
+                    <span class="bg-card text-foreground px-2 py-1 rounded-full text-xs font-bold" data-bind="fictionalCount" data-mock="true">64</span>
+                </button>
+                <button class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground font-medium transition-colors whitespace-nowrap" data-event="click:filterByCategory" data-category="political">
+                    <i class="fas fa-landmark"></i>
+                    <span>Political</span>
+                    <span class="bg-card text-foreground px-2 py-1 rounded-full text-xs font-bold" data-bind="politicalCount" data-mock="true">27</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- @END_COMPONENT: CategoryFilter -->
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- @COMPONENT: TrendingBanner -->
+        <!-- Trending Section Banner -->
+        <div class="mb-8">
+            <div class="bg-gradient-to-r from-secondary to-primary rounded-xl p-6 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold mb-2">🔥 Trending Now</h2>
+                        <p class="text-white/90">Most voted celebrities in the last 24 hours</p>
+                    </div>
+                    <div class="hidden sm:block">
+                        <div class="text-right">
+                            <div class="text-3xl font-bold" data-bind="trendingCount" data-mock="true">1,247</div>
+                            <div class="text-sm text-white/80">Total votes today</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- @END_COMPONENT: TrendingBanner -->
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            
+            <!-- @COMPONENT: MainContent -->
+            <!-- Main Posts Feed -->
+            <div class="lg:col-span-3">
+                
+                <!-- Sort Options -->
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold text-foreground">Celebrity Posts</h3>
+                    <div class="flex items-center space-x-4">
+                        <select class="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" data-event="change:handleSortChange" data-bind="sortBy">
+                            <option value="recent">Most Recent</option>
+                            <option value="votes">Most Voted</option>
+                            <option value="trending">Trending</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Posts Grid -->
+                <!-- @MAP: posts.map(post => ( -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    
+                    <!-- Celebrity Post Card 1 -->
+                    <div class="bg-card rounded-xl shadow-lg border border-border overflow-hidden hover:shadow-xl transition-shadow" data-post-id="1" data-mock="true">
+                        <!-- Trending Badge -->
+                        <div class="absolute top-4 left-4 z-10">
+                            <span class="bg-secondary text-secondary-foreground px-2 py-1 rounded-full text-xs font-bold trending-badge">
+                                🔥 Trending
+                            </span>
+                        </div>
+                        
+                        <!-- Celebrity image showcasing a famous Hollywood actor in a movie scene -->
+                        <div class="relative h-64 bg-muted">
+                            <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=800&h=600" alt="Celebrity portrait" class="w-full h-full object-cover" data-bind="post.image" data-mock-image="true">
+                            <div class="absolute top-4 right-4">
+                                <span class="bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-medium" data-bind="post.category" data-mock="true">Film</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Post Content -->
+                        <div class="p-6">
+                            <h4 class="text-xl font-bold text-foreground mb-2" data-bind="post.name" data-mock="true">Ryan Gosling</h4>
+                            <p class="text-muted-foreground text-sm mb-4">Posted 2 hours ago</p>
+                            
+                            <!-- Vote Buttons -->
+                            <div class="grid grid-cols-5 gap-2 mb-4">
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="slap" data-post="1">
+                                    <i class="fas fa-hand-paper text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Slap</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.slap" data-mock="true">234</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-blue-100 hover:text-blue-600 transition-all" data-event="click:handleVote" data-action="hug" data-post="1">
+                                    <i class="fas fa-heart text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hug</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hug" data-mock="true">567</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-pink-100 hover:text-pink-600 transition-all" data-event="click:handleVote" data-action="kiss" data-post="1">
+                                    <i class="fas fa-kiss text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Kiss</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.kiss" data-mock="true">892</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-green-100 hover:text-green-600 transition-all" data-event="click:handleVote" data-action="love" data-post="1">
+                                    <i class="fas fa-heart-circle text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Love</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.love" data-mock="true">1.2k</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="hate" data-post="1">
+                                    <i class="fas fa-thumbs-down text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hate</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hate" data-mock="true">89</span>
+                                </button>
+                            </div>
+                            
+                            <!-- Total Votes -->
+                            <div class="text-center">
+                                <span class="text-sm text-muted-foreground">Total Votes: </span>
+                                <span class="font-bold text-primary" data-bind="post.totalVotes" data-mock="true">2,982</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Celebrity Post Card 2 -->
+                    <div class="bg-card rounded-xl shadow-lg border border-border overflow-hidden hover:shadow-xl transition-shadow" data-post-id="2" data-mock="true">
+                        <!-- Portrait of a strong fictional character from popular anime/manga -->
+                        <div class="relative h-64 bg-muted">
+                            <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=800&h=600" alt="Fictional character" class="w-full h-full object-cover" data-bind="post.image" data-mock-image="true">
+                            <div class="absolute top-4 right-4">
+                                <span class="bg-accent text-accent-foreground px-2 py-1 rounded-full text-xs font-medium" data-bind="post.category" data-mock="true">Fictional</span>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6">
+                            <h4 class="text-xl font-bold text-foreground mb-2" data-bind="post.name" data-mock="true">Wonder Woman</h4>
+                            <p class="text-muted-foreground text-sm mb-4">Posted 4 hours ago</p>
+                            
+                            <!-- Vote Buttons -->
+                            <div class="grid grid-cols-5 gap-2 mb-4">
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="slap" data-post="2">
+                                    <i class="fas fa-hand-paper text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Slap</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.slap" data-mock="true">45</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-blue-100 hover:text-blue-600 transition-all" data-event="click:handleVote" data-action="hug" data-post="2">
+                                    <i class="fas fa-heart text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hug</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hug" data-mock="true">789</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-pink-100 hover:text-pink-600 transition-all" data-event="click:handleVote" data-action="kiss" data-post="2">
+                                    <i class="fas fa-kiss text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Kiss</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.kiss" data-mock="true">456</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-green-100 hover:text-green-600 transition-all" data-event="click:handleVote" data-action="love" data-post="2">
+                                    <i class="fas fa-heart-circle text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Love</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.love" data-mock="true">1.8k</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="hate" data-post="2">
+                                    <i class="fas fa-thumbs-down text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hate</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hate" data-mock="true">12</span>
+                                </button>
+                            </div>
+                            
+                            <div class="text-center">
+                                <span class="text-sm text-muted-foreground">Total Votes: </span>
+                                <span class="font-bold text-primary" data-bind="post.totalVotes" data-mock="true">3,102</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Celebrity Post Card 3 -->
+                    <div class="bg-card rounded-xl shadow-lg border border-border overflow-hidden hover:shadow-xl transition-shadow" data-post-id="3" data-mock="true">
+                        <!-- Professional politician in formal government setting -->
+                        <div class="relative h-64 bg-muted">
+                            <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=800&h=600" alt="Political figure" class="w-full h-full object-cover" data-bind="post.image" data-mock-image="true">
+                            <div class="absolute top-4 right-4">
+                                <span class="bg-destructive text-destructive-foreground px-2 py-1 rounded-full text-xs font-medium" data-bind="post.category" data-mock="true">Political</span>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6">
+                            <h4 class="text-xl font-bold text-foreground mb-2" data-bind="post.name" data-mock="true">Generic Politician</h4>
+                            <p class="text-muted-foreground text-sm mb-4">Posted 6 hours ago</p>
+                            
+                            <!-- Vote Buttons -->
+                            <div class="grid grid-cols-5 gap-2 mb-4">
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="slap" data-post="3">
+                                    <i class="fas fa-hand-paper text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Slap</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.slap" data-mock="true">1.5k</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-blue-100 hover:text-blue-600 transition-all" data-event="click:handleVote" data-action="hug" data-post="3">
+                                    <i class="fas fa-heart text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hug</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hug" data-mock="true">234</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-pink-100 hover:text-pink-600 transition-all" data-event="click:handleVote" data-action="kiss" data-post="3">
+                                    <i class="fas fa-kiss text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Kiss</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.kiss" data-mock="true">89</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-green-100 hover:text-green-600 transition-all" data-event="click:handleVote" data-action="love" data-post="3">
+                                    <i class="fas fa-heart-circle text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Love</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.love" data-mock="true">567</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="hate" data-post="3">
+                                    <i class="fas fa-thumbs-down text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hate</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hate" data-mock="true">892</span>
+                                </button>
+                            </div>
+                            
+                            <div class="text-center">
+                                <span class="text-sm text-muted-foreground">Total Votes: </span>
+                                <span class="font-bold text-primary" data-bind="post.totalVotes" data-mock="true">3,282</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Celebrity Post Card 4 -->
+                    <div class="bg-card rounded-xl shadow-lg border border-border overflow-hidden hover:shadow-xl transition-shadow" data-post-id="4" data-mock="true">
+                        <!-- Famous female actress in elegant dress at red carpet event -->
+                        <div class="relative h-64 bg-muted">
+                            <img src="https://pixabay.com/get/g7cf9c41629b94534578754c595ac8582f4c8c788752f02c4b9ab3fef8cddea2809fb96286a89a066e03b86dfd5ca4d8fb00647404a0a2dea14d5ebd66abc1227_1280.jpg" alt="Female celebrity" class="w-full h-full object-cover" data-bind="post.image" data-mock-image="true">
+                            <div class="absolute top-4 right-4">
+                                <span class="bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-medium" data-bind="post.category" data-mock="true">Film</span>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6">
+                            <h4 class="text-xl font-bold text-foreground mb-2" data-bind="post.name" data-mock="true">Emma Stone</h4>
+                            <p class="text-muted-foreground text-sm mb-4">Posted 8 hours ago</p>
+                            
+                            <!-- Vote Buttons -->
+                            <div class="grid grid-cols-5 gap-2 mb-4">
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="slap" data-post="4">
+                                    <i class="fas fa-hand-paper text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Slap</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.slap" data-mock="true">67</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-blue-100 hover:text-blue-600 transition-all" data-event="click:handleVote" data-action="hug" data-post="4">
+                                    <i class="fas fa-heart text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hug</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hug" data-mock="true">923</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-pink-100 hover:text-pink-600 transition-all" data-event="click:handleVote" data-action="kiss" data-post="4">
+                                    <i class="fas fa-kiss text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Kiss</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.kiss" data-mock="true">678</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-green-100 hover:text-green-600 transition-all" data-event="click:handleVote" data-action="love" data-post="4">
+                                    <i class="fas fa-heart-circle text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Love</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.love" data-mock="true">2.1k</span>
+                                </button>
+                                <button class="vote-button flex flex-col items-center p-3 rounded-lg bg-muted hover:bg-red-100 hover:text-red-600 transition-all" data-event="click:handleVote" data-action="hate" data-post="4">
+                                    <i class="fas fa-thumbs-down text-xl mb-1"></i>
+                                    <span class="text-xs font-medium">Hate</span>
+                                    <span class="text-xs font-bold" data-bind="post.votes.hate" data-mock="true">23</span>
+                                </button>
+                            </div>
+                            
+                            <div class="text-center">
+                                <span class="text-sm text-muted-foreground">Total Votes: </span>
+                                <span class="font-bold text-primary" data-bind="post.totalVotes" data-mock="true">3,791</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <!-- @END_MAP )) -->
+                
+                <!-- Load More Button -->
+                <div class="text-center">
+                    <button class="bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground px-8 py-3 rounded-lg font-medium transition-colors" data-event="click:loadMorePosts">
+                        Load More Posts
+                    </button>
+                </div>
+                
+            </div>
+            <!-- @END_COMPONENT: MainContent -->
+
+            <!-- @COMPONENT: Sidebar -->
+            <!-- Sidebar -->
+            <div class="lg:col-span-1">
+                
+                <!-- Submit New Post Widget -->
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6 mb-8">
+                    <h3 class="text-lg font-bold text-foreground mb-4">Submit New Post</h3>
+                    <p class="text-muted-foreground text-sm mb-4">Share your favorite celebrity, character, or politician for others to vote on!</p>
+                    <button class="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors" data-event="click:openSubmissionModal">
+                        <i class="fas fa-plus mr-2"></i>
+                        Create Post
+                    </button>
+                </div>
+
+                <!-- Top Leaderboard -->
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6 mb-8">
+                    <h3 class="text-lg font-bold text-foreground mb-4">🏆 Top Leaderboard</h3>
+                    
+                    <!-- Leaderboard Tabs -->
+                    <div class="flex space-x-2 mb-4 overflow-x-auto">
+                        <button class="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-medium whitespace-nowrap" data-event="click:changeLeaderboard" data-action="love">Most Loved</button>
+                        <button class="px-3 py-1 rounded-lg bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground text-xs font-medium whitespace-nowrap transition-colors" data-event="click:changeLeaderboard" data-action="slap">Most Slapped</button>
+                        <button class="px-3 py-1 rounded-lg bg-muted text-muted-foreground hover:bg-primary hover:text-primary-foreground text-xs font-medium whitespace-nowrap transition-colors" data-event="click:changeLeaderboard" data-action="hate">Most Hated</button>
+                    </div>
+                    
+                    <!-- Leaderboard List -->
+                    <!-- @MAP: leaderboard.map((entry, index) => ( -->
+                    <div class="space-y-3" data-mock="true">
+                        <div class="flex items-center space-x-3 p-2 rounded-lg bg-muted/50">
+                            <div class="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">1</div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-foreground truncate" data-bind="entry.name" data-mock="true">Ryan Gosling</p>
+                                <p class="text-xs text-muted-foreground" data-bind="entry.category" data-mock="true">Film</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-primary" data-bind="entry.votes" data-mock="true">1.2k</p>
+                                <p class="text-xs text-muted-foreground">❤️ loves</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center space-x-3 p-2 rounded-lg bg-muted/50">
+                            <div class="w-8 h-8 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center text-sm font-bold">2</div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-foreground truncate" data-bind="entry.name" data-mock="true">Wonder Woman</p>
+                                <p class="text-xs text-muted-foreground" data-bind="entry.category" data-mock="true">Fictional</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-primary" data-bind="entry.votes" data-mock="true">1.8k</p>
+                                <p class="text-xs text-muted-foreground">❤️ loves</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center space-x-3 p-2 rounded-lg bg-muted/50">
+                            <div class="w-8 h-8 bg-accent text-accent-foreground rounded-full flex items-center justify-center text-sm font-bold">3</div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-foreground truncate" data-bind="entry.name" data-mock="true">Emma Stone</p>
+                                <p class="text-xs text-muted-foreground" data-bind="entry.category" data-mock="true">Film</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-primary" data-bind="entry.votes" data-mock="true">2.1k</p>
+                                <p class="text-xs text-muted-foreground">❤️ loves</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- @END_MAP )) -->
+                    
+                    <div class="mt-4">
+                        <a href="#leaderboard" class="text-primary hover:text-primary/80 text-sm font-medium">View Full Leaderboard →</a>
+                    </div>
+                </div>
+
+                <!-- Custom Action Suggestion -->
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6 mb-8">
+                    <h3 class="text-lg font-bold text-foreground mb-4">💡 Suggest Action</h3>
+                    <p class="text-muted-foreground text-sm mb-4">Have an idea for a new voting action? Suggest it!</p>
+                    <div class="space-y-3">
+                        <input 
+                            type="text" 
+                            placeholder="Action name (e.g., 'applaud')"
+                            class="w-full px-3 py-2 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                            data-bind="newActionName"
+                            data-event="input:handleActionNameChange"
+                        >
+                        <button class="w-full bg-accent text-accent-foreground py-2 rounded-lg font-medium hover:bg-accent/90 transition-colors text-sm" data-event="click:submitActionSuggestion">
+                            <i class="fas fa-lightbulb mr-2"></i>
+                            Suggest Action
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6">
+                    <h3 class="text-lg font-bold text-foreground mb-4">📊 Recent Activity</h3>
+                    <!-- @MAP: recentActivity.map(activity => ( -->
+                    <div class="space-y-3 text-sm" data-mock="true">
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-heart text-red-500"></i>
+                            <span class="text-muted-foreground">Someone loved</span>
+                            <span class="font-medium text-foreground" data-bind="activity.target" data-mock="true">Ryan Gosling</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-hand-paper text-orange-500"></i>
+                            <span class="text-muted-foreground">Someone slapped</span>
+                            <span class="font-medium text-foreground" data-bind="activity.target" data-mock="true">Generic Politician</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-kiss text-pink-500"></i>
+                            <span class="text-muted-foreground">Someone kissed</span>
+                            <span class="font-medium text-foreground" data-bind="activity.target" data-mock="true">Wonder Woman</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-heart text-green-500"></i>
+                            <span class="text-muted-foreground">Someone hugged</span>
+                            <span class="font-medium text-foreground" data-bind="activity.target" data-mock="true">Emma Stone</span>
+                        </div>
+                    </div>
+                    <!-- @END_MAP )) -->
+                </div>
+            </div>
+            <!-- @END_COMPONENT: Sidebar -->
+        </div>
+    </main>
+
+    <!-- @COMPONENT: SubmissionModal -->
+    <!-- Post Submission Modal (Hidden by default) -->
+    <div id="submissionModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4" data-event="click:closeModalOnBackdrop">
+        <div class="bg-card rounded-xl shadow-2xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-border">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-bold text-foreground">Submit New Celebrity Post</h2>
+                    <button class="text-muted-foreground hover:text-foreground transition-colors" data-event="click:closeSubmissionModal">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <p class="text-muted-foreground mt-2">Share your favorite celebrity, character, or politician for others to vote on!</p>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="p-6">
+                <form class="space-y-6" data-event="submit:handlePostSubmission">
+                    
+                    <!-- Name Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-foreground mb-2">Name *</label>
+                        <input 
+                            type="text" 
+                            placeholder="Enter celebrity/character name"
+                            class="w-full px-4 py-3 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                            data-bind="submissionForm.name"
+                            data-event="input:handleNameChange"
+                            required
+                        >
+                    </div>
+                    
+                    <!-- Category Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-foreground mb-2">Category *</label>
+                        <select class="w-full px-4 py-3 bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" data-bind="submissionForm.category" data-event="change:handleCategoryChange" required>
+                            <option value="">Select category</option>
+                            <option value="film">Film Stars</option>
+                            <option value="fictional">Fictional Characters</option>
+                            <option value="political">Political Figures</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Image Upload Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-foreground mb-2">Image *</label>
+                        <div class="border-2 border-dashed border-border rounded-lg p-8 text-center bg-muted/50 hover:bg-muted transition-colors">
+                            <i class="fas fa-cloud-upload-alt text-4xl text-muted-foreground mb-4"></i>
+                            <p class="text-muted-foreground mb-2">Drag & drop an image here, or click to browse</p>
+                            <p class="text-xs text-muted-foreground">Supported formats: JPG, PNG, GIF (Max 5MB)</p>
+                            <input type="file" class="hidden" accept="image/*" data-event="change:handleImageUpload" data-implementation="Should handle file upload with validation">
+                            <button type="button" class="mt-4 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors" data-event="click:triggerFileInput">
+                                Choose File
+                            </button>
+                        </div>
+                        <!-- Image Preview -->
+                        <div class="mt-4 hidden" id="imagePreview" data-implementation="Show preview when image is selected">
+                            <img src="" alt="Preview" class="w-32 h-32 object-cover rounded-lg border border-border">
+                        </div>
+                    </div>
+                    
+                    <!-- CAPTCHA Placeholder -->
+                    <div>
+                        <label class="block text-sm font-medium text-foreground mb-2">Verification *</label>
+                        <div class="bg-muted/50 border border-border rounded-lg p-4">
+                            <!-- CAPTCHA: Google reCAPTCHA v2 invisible integration needed here -->
+                            <div class="flex items-center space-x-2 text-muted-foreground">
+                                <i class="fas fa-shield-alt"></i>
+                                <span class="text-sm">reCAPTCHA verification required</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Submit Buttons -->
+                    <div class="flex space-x-3 pt-4">
+                        <button type="button" class="flex-1 bg-muted text-muted-foreground py-3 rounded-lg font-medium hover:bg-muted/80 transition-colors" data-event="click:closeSubmissionModal">
+                            Cancel
+                        </button>
+                        <button type="submit" class="flex-1 bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors" data-implementation="Should validate form and submit">
+                            <i class="fas fa-paper-plane mr-2"></i>
+                            Submit Post
+                        </button>
+                    </div>
+                    
+                    <!-- Submission Notice -->
+                    <div class="bg-muted/50 border border-border rounded-lg p-4">
+                        <p class="text-xs text-muted-foreground">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            Your post will be reviewed by moderators before appearing publicly. This usually takes 1-2 hours.
+                        </p>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- @END_COMPONENT: SubmissionModal -->
+
+    <!-- @COMPONENT: AdminDashboard -->
+    <!-- Admin Dashboard (Hidden by default, shown only for admin users) -->
+    <div id="adminDashboard" class="fixed inset-0 bg-background z-50 hidden overflow-y-auto" data-admin-only="true">
+        
+        <!-- Admin Header -->
+        <header class="bg-card border-b border-border shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-2xl font-bold text-primary">🛡️ CelebVote Admin</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-sm text-muted-foreground">Welcome, Admin</span>
+                        <button class="bg-muted text-muted-foreground px-4 py-2 rounded-lg font-medium hover:bg-destructive hover:text-destructive-foreground transition-colors" data-event="click:logout">
+                            Logout
+                        </button>
+                        <button class="text-muted-foreground hover:text-foreground transition-colors" data-event="click:closeAdminDashboard">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Admin Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            
+            <!-- Admin Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-muted-foreground text-sm">Pending Posts</p>
+                            <p class="text-2xl font-bold text-foreground" data-bind="admin.pendingPosts" data-mock="true">12</p>
+                        </div>
+                        <i class="fas fa-clock text-2xl text-secondary"></i>
+                    </div>
+                </div>
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-muted-foreground text-sm">Total Posts</p>
+                            <p class="text-2xl font-bold text-foreground" data-bind="admin.totalPosts" data-mock="true">247</p>
+                        </div>
+                        <i class="fas fa-star text-2xl text-primary"></i>
+                    </div>
+                </div>
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-muted-foreground text-sm">Total Votes</p>
+                            <p class="text-2xl font-bold text-foreground" data-bind="admin.totalVotes" data-mock="true">15.6k</p>
+                        </div>
+                        <i class="fas fa-vote-yea text-2xl text-accent"></i>
+                    </div>
+                </div>
+                <div class="bg-card rounded-xl shadow-lg border border-border p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-muted-foreground text-sm">Pending Actions</p>
+                            <p class="text-2xl font-bold text-foreground" data-bind="admin.pendingActions" data-mock="true">3</p>
+                        </div>
+                        <i class="fas fa-lightbulb text-2xl text-secondary"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Tabs -->
+            <div class="bg-card rounded-xl shadow-lg border border-border">
+                <div class="border-b border-border">
+                    <nav class="flex space-x-8 px-6">
+                        <button class="py-4 px-2 border-b-2 border-primary text-primary font-medium" data-event="click:switchAdminTab" data-tab="posts">
+                            Pending Posts (12)
+                        </button>
+                        <button class="py-4 px-2 border-b-2 border-transparent text-muted-foreground hover:text-foreground font-medium transition-colors" data-event="click:switchAdminTab" data-tab="actions">
+                            Custom Actions (3)
+                        </button>
+                        <button class="py-4 px-2 border-b-2 border-transparent text-muted-foreground hover:text-foreground font-medium transition-colors" data-event="click:switchAdminTab" data-tab="management">
+                            Post Management
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Pending Posts Tab -->
+                <div class="p-6" id="adminPostsTab">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold text-foreground">Posts Awaiting Approval</h3>
+                        <div class="flex space-x-2">
+                            <button class="bg-accent text-accent-foreground px-4 py-2 rounded-lg font-medium hover:bg-accent/90 transition-colors" data-event="click:approveAllPosts">
+                                <i class="fas fa-check-double mr-2"></i>
+                                Approve All
+                            </button>
+                            <button class="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg font-medium hover:bg-destructive/90 transition-colors" data-event="click:rejectAllPosts">
+                                <i class="fas fa-times-circle mr-2"></i>
+                                Reject All
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Pending Posts List -->
+                    <!-- @MAP: pendingPosts.map(post => ( -->
+                    <div class="space-y-4" data-mock="true">
+                        <div class="border border-border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div class="flex items-start space-x-4">
+                                <!-- Placeholder image for pending celebrity post -->
+                                <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=100&h=100" alt="Pending post" class="w-16 h-16 object-cover rounded-lg" data-bind="post.image" data-mock-image="true">
+                                <div class="flex-1">
+                                    <h4 class="font-medium text-foreground" data-bind="post.name" data-mock="true">Leonardo DiCaprio</h4>
+                                    <p class="text-sm text-muted-foreground">Category: <span class="font-medium" data-bind="post.category" data-mock="true">Film</span></p>
+                                    <p class="text-xs text-muted-foreground mt-1">Submitted 2 hours ago</p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button class="bg-accent text-accent-foreground px-3 py-1 rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors" data-event="click:approvePost" data-post-id="pending-1">
+                                        <i class="fas fa-check mr-1"></i>
+                                        Approve
+                                    </button>
+                                    <button class="bg-destructive text-destructive-foreground px-3 py-1 rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors" data-event="click:rejectPost" data-post-id="pending-1">
+                                        <i class="fas fa-times mr-1"></i>
+                                        Reject
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border border-border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div class="flex items-start space-x-4">
+                                <!-- Another placeholder image for pending fictional character post -->
+                                <img src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=100&h=100" alt="Pending post" class="w-16 h-16 object-cover rounded-lg" data-bind="post.image" data-mock-image="true">
+                                <div class="flex-1">
+                                    <h4 class="font-medium text-foreground" data-bind="post.name" data-mock="true">Spider-Man</h4>
+                                    <p class="text-sm text-muted-foreground">Category: <span class="font-medium" data-bind="post.category" data-mock="true">Fictional</span></p>
+                                    <p class="text-xs text-muted-foreground mt-1">Submitted 4 hours ago</p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button class="bg-accent text-accent-foreground px-3 py-1 rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors" data-event="click:approvePost" data-post-id="pending-2">
+                                        <i class="fas fa-check mr-1"></i>
+                                        Approve
+                                    </button>
+                                    <button class="bg-destructive text-destructive-foreground px-3 py-1 rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors" data-event="click:rejectPost" data-post-id="pending-2">
+                                        <i class="fas fa-times mr-1"></i>
+                                        Reject
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- @END_MAP )) -->
+                </div>
+            </div>
+        </main>
+    </div>
+    <!-- @END_COMPONENT: AdminDashboard -->
+
+    <!-- @COMPONENT: Footer -->
+    <!-- Footer -->
+    <footer class="bg-card border-t border-border mt-16">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div>
+                    <h3 class="text-lg font-bold text-foreground mb-4">🎭 CelebVote</h3>
+                    <p class="text-muted-foreground text-sm">Vote on your favorite celebrities, fictional characters, and politicians. Express your feelings with fun interactive actions!</p>
+                </div>
+                <div>
+                    <h4 class="font-medium text-foreground mb-4">Quick Links</h4>
+                    <div class="space-y-2 text-sm">
+                        <a href="#home" class="block text-muted-foreground hover:text-primary transition-colors">Home</a>
+                        <a href="#trending" class="block text-muted-foreground hover:text-primary transition-colors">Trending</a>
+                        <a href="#leaderboard" class="block text-muted-foreground hover:text-primary transition-colors">Leaderboard</a>
+                        <a href="#submit" class="block text-muted-foreground hover:text-primary transition-colors">Submit Post</a>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="font-medium text-foreground mb-4">Community</h4>
+                    <div class="space-y-2 text-sm">
+                        <p class="text-muted-foreground">Total Posts: <span class="font-bold text-primary" data-bind="stats.totalPosts" data-mock="true">247</span></p>
+                        <p class="text-muted-foreground">Total Votes: <span class="font-bold text-primary" data-bind="stats.totalVotes" data-mock="true">15.6k</span></p>
+                        <p class="text-muted-foreground">Active Users: <span class="font-bold text-primary" data-bind="stats.activeUsers" data-mock="true">1.2k</span></p>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-8 pt-8 border-t border-border text-center">
+                <p class="text-muted-foreground text-sm">&copy; 2024 CelebVote. All rights reserved. | Anonymous voting platform</p>
+            </div>
+        </div>
+    </footer>
+    <!-- @END_COMPONENT: Footer -->
+
+    <script>
+        // TODO: Implement business logic, API calls, and state management
+        (function() {
+            // Modal handling
+            function openSubmissionModal() {
+                document.getElementById('submissionModal').classList.remove('hidden');
+                document.getElementById('submissionModal').classList.add('flex');
+            }
+
+            function closeSubmissionModal() {
+                document.getElementById('submissionModal').classList.add('hidden');
+                document.getElementById('submissionModal').classList.remove('flex');
+            }
+
+            // Vote button interactions
+            function handleVoteClick(button) {
+                const action = button.getAttribute('data-action');
+                const postId = button.getAttribute('data-post');
+                
+                // Add visual feedback
+                button.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    button.style.transform = '';
+                }, 150);
+
+                // TODO: Send vote to backend API
+                console.log(`Voting ${action} on post ${postId}`);
+            }
+
+            // Initialize event listeners
+            document.addEventListener('DOMContentLoaded', function() {
+                // Modal triggers
+                document.querySelectorAll('[data-event*="openSubmissionModal"]').forEach(btn => {
+                    btn.addEventListener('click', openSubmissionModal);
+                });
+
+                document.querySelectorAll('[data-event*="closeSubmissionModal"]').forEach(btn => {
+                    btn.addEventListener('click', closeSubmissionModal);
+                });
+
+                // Vote buttons
+                document.querySelectorAll('.vote-button').forEach(btn => {
+                    btn.addEventListener('click', () => handleVoteClick(btn));
+                });
+
+                // Close modal on backdrop click
+                document.getElementById('submissionModal').addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeSubmissionModal();
+                    }
+                });
+            });
+
+            // TODO: Implement search functionality
+            // TODO: Implement category filtering
+            // TODO: Implement leaderboard switching
+            // TODO: Implement admin authentication and dashboard
+            // TODO: Implement real-time vote updates
+            // TODO: Implement rate limiting on client side
+            // TODO: Integrate reCAPTCHA verification
+        })();
+    </script>
+
+</body>
+</html>

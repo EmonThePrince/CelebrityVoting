@@ -1,22 +1,58 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertPostSchema, insertActionSchema, insertVoteSchema } from "@shared/schema";
+import { isAdmin, passport } from "./auth";
+import { insertPostSchema, insertActionSchema, insertVoteSchema, actions, users } from "@shared/schema";
 import { z } from "zod";
+import { db } from "./db";
+import bcrypt from 'bcrypt';
+import { eq } from "drizzle-orm";
 
-// Configure multer for image uploads
+// Allowed image mime types and extension mapping
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
+const MIME_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
+
+// Configure multer for image uploads (disk storage under uploads/images)
+const uploadDir = path.resolve(import.meta.dirname, '..', 'uploads', 'images');
+
+const storageEngine = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fs.mkdir(uploadDir, { recursive: true }, (err) => cb(err as Error | null, uploadDir));
+  },
+  filename: (req, file, cb) => {
+    const mime = file.mimetype || '';
+    const mappedExt = MIME_EXT[mime] || path.extname(file.originalname).toLowerCase() || '.jpg';
+    const base = path
+      .basename(file.originalname, path.extname(file.originalname))
+      .replace(/[^a-zA-Z0-9-_]/g, '_');
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${base}-${unique}${mappedExt}`);
+  }
+});
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: storageEngine,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    if (file.mimetype && ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'));
+      cb(new Error('Only JPG, PNG, GIF, or WEBP image files are allowed'));
     }
   },
 });
@@ -29,16 +65,23 @@ function getClientIP(req: any): string {
          '127.0.0.1';
 }
 
-// Simple image upload handler (in production, use Cloudinary)
+// Get absolute origin (supports proxies)
+function getRequestOrigin(req: any): string {
+  const xfProto = (req.headers['x-forwarded-proto'] || '').toString().split(',')[0].trim();
+  const xfHost = (req.headers['x-forwarded-host'] || '').toString().split(',')[0].trim();
+  const proto = xfProto || req.protocol;
+  const host = xfHost || req.get('host');
+  return `${proto}://${host}`;
+}
+
+// Simple image upload handler returning public URL for saved file
 async function uploadImage(file: Express.Multer.File): Promise<string> {
-  // For now, we'll just return a placeholder URL
-  // In production, upload to Cloudinary and return the URL
-  return `https://via.placeholder.com/400x300?text=${encodeURIComponent(file.originalname)}`;
+  // File is already saved to disk by multer.diskStorage
+  return `/uploads/images/${file.filename}`;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
+  // No auto-auth middleware; use session-based auth
 
   // Initialize default actions
   const initializeDefaultActions = async () => {
@@ -49,7 +92,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       for (const actionName of defaultActions) {
         if (!existingNames.includes(actionName)) {
-          await storage.createAction({
+          await db.insert(actions).values({
             name: actionName,
             approved: true,
             isDefault: true,
@@ -65,10 +108,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initializeDefaultActions();
 
   // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  // Simple admin login endpoint
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    console.log('Login attempt:', email);
+
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      // Fetch admin user from the database
+      const [adminUser] = await db.select().from(users).where(eq(users.email, email));
+
+      if (!adminUser) {
+        console.log('Login failed: User not found');
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, adminUser.passwordHash);
+      if (!isPasswordValid) {
+        console.log('Login failed: Invalid password');
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      // Create session user object
+      const sessionUser = {
+        id: adminUser.id,
+        email: adminUser.email,
+        isAdmin: !!adminUser.isAdmin, // Ensure boolean type
+      };
+
+      console.log('Admin user fetched from database:', adminUser);
+      console.log('Password verification result:', isPasswordValid);
+      console.log('Session user object:', sessionUser);
+
+      // Store in session
+      req.session.user = sessionUser;
+      await req.session.save();
+
+      console.log('Login successful:', sessionUser);
+      console.log('Session after login:', req.session);
+      return res.json({ success: true, user: sessionUser });
+    } catch (error) {
+      console.error('Login error:', error);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+  }); // Close the login route
+
+  app.get('/api/auth/user', (req: any, res) => {
+    try {
+      const user = (req.session as any).user;
+      if (!user) {
+        return res.status(401).json({ message: 'Unauthorized' });
+      }
+      console.log('Session data:', req.session);
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -76,13 +167,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/auth/logout', (req: any, res) => {
+    req.logout((err: any) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to logout' });
+      }
+      res.json({ message: 'Logged out successfully' });
+    });
+  });
+
   // Public endpoints
 
   // Get approved posts with vote counts
   app.get('/api/posts', async (req, res) => {
     try {
-      const { category, limit = '20', offset = '0', sort = 'recent' } = req.query;
-      const posts = await storage.getPosts('approved', category as string, parseInt(limit as string), parseInt(offset as string));
+      const { category, limit = '20', offset = '0', sort = 'recent', action } = req.query;
+      const posts = await storage.getPosts(
+        'approved',
+        category as string,
+        parseInt(limit as string),
+        parseInt(offset as string),
+        action as string,
+        sort as string
+      );
       
       // Get vote counts for each post
       const postsWithVotes = await Promise.all(
@@ -130,11 +237,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl: 'placeholder', // Will be replaced after image upload
       });
 
-      let imageUrl = 'https://via.placeholder.com/400x300?text=No+Image';
-      
-      if (req.file) {
-        imageUrl = await uploadImage(req.file);
+      if (!req.file) {
+        return res.status(400).json({ message: 'Image is required' });
       }
+
+      const publicPath = await uploadImage(req.file);
+      const origin = getRequestOrigin(req);
+      const imageUrl = `${origin}${publicPath}`;
 
       const post = await storage.createPost({
         ...validatedData,
@@ -172,18 +281,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { postId } = req.body;
       const ipAddress = getClientIP(req);
 
+      // If user already voted for this action on this post, toggle off (remove vote) without rate-limit penalty
+      const alreadyVoted = await storage.hasUserVoted(postId, actionId, ipAddress);
+      if (alreadyVoted) {
+        await storage.deleteVote(postId, actionId, ipAddress);
+        return res.status(200).json({ action: 'removed' });
+      }
+
       // Rate limiting check
       const canVote = await storage.checkRateLimit(ipAddress, 'vote', 5, 1); // 5 votes per minute
       if (!canVote) {
         return res.status(429).json({ message: 'Rate limit exceeded. Please wait before voting again.' });
       }
 
-      // Check if user already voted for this action on this post
-      const hasVoted = await storage.hasUserVoted(postId, actionId, ipAddress);
-      if (hasVoted) {
-        return res.status(400).json({ message: 'You have already voted for this action on this post.' });
-      }
-
+      
       // Validate post and action exist
       const post = await storage.getPostById(postId);
       const action = await storage.getActionById(actionId);
@@ -294,10 +405,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = insertActionSchema.parse(req.body);
       
-      const action = await storage.createAction({
+      // Create action with approval status set to false
+      const [action] = await db.insert(actions).values({
         ...validatedData,
-        approved: false, // Requires admin approval
-      });
+        approved: false,
+      }).returning();
 
       await storage.incrementRateLimit(ipAddress, 'action_suggestion');
 
@@ -326,30 +438,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin endpoints
   
   // Get pending posts (admin only)
-  app.get('/api/admin/posts/pending', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/posts/pending', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const pendingPosts = await storage.getPosts('pending');
-      res.json(pendingPosts);
+  // req.adminUser is set by the isAdmin middleware
+  const user = req.adminUser;
+  console.log('[ADMIN] /api/admin/posts/pending called. req.session.user:', req.session?.user, 'req.user:', req.user, 'req.adminUser:', user?.id);
+  const pendingPosts = await storage.getPosts('pending');
+  console.log('[ADMIN] pendingPosts count:', (pendingPosts || []).length);
+  res.json(pendingPosts);
     } catch (error) {
       console.error('Error fetching pending posts:', error);
       res.status(500).json({ message: 'Failed to fetch pending posts' });
     }
   });
 
-  // Approve/reject post (admin only)
-  app.patch('/api/admin/posts/:id', isAuthenticated, async (req: any, res) => {
+  // Temporary debug endpoint (unauthenticated) to list pending posts for troubleshooting
+  // REMOVE or protect this in production
+  app.get('/api/_debug/pending-posts', async (_req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
+      const pendingPosts = await storage.getPosts('pending');
+      console.log('[DEBUG] /api/_debug/pending-posts count:', (pendingPosts || []).length);
+      res.json(pendingPosts);
+    } catch (err) {
+      console.error('Debug pending posts error:', err);
+      res.status(500).json({ message: 'Failed to fetch pending posts (debug)' });
+    }
+  });
 
-      const { id } = req.params;
+  // Approve/reject post (admin only)
+  app.patch('/api/admin/posts/:id', isAdmin, async (req: any, res) => {
+    try {
+  const user = req.adminUser;
+  const { id } = req.params;
       const { status } = req.body;
 
       if (!['approved', 'rejected'].includes(status)) {
@@ -365,15 +485,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete post (admin only)
-  app.delete('/api/admin/posts/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/posts/:id', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const { id } = req.params;
-      await storage.deletePost(id);
+  const user = req.adminUser;
+  const { id } = req.params;
+  await storage.deletePost(id);
       res.json({ message: 'Post deleted' });
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -382,14 +498,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get pending actions (admin only)
-  app.get('/api/admin/actions/pending', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/actions/pending', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const pendingActions = await storage.getActions(false);
+  const user = req.adminUser;
+  const pendingActions = await storage.getActions(false);
       res.json(pendingActions);
     } catch (error) {
       console.error('Error fetching pending actions:', error);
@@ -398,15 +510,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Approve/reject action (admin only)
-  app.patch('/api/admin/actions/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/actions/:id', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const { id } = req.params;
-      const { approved } = req.body;
+  const user = req.adminUser;
+  const { id } = req.params;
+  const { approved } = req.body;
 
       if (typeof approved !== 'boolean') {
         return res.status(400).json({ message: 'Approved must be boolean' });
@@ -421,14 +529,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk approve posts (admin only)
-  app.post('/api/admin/posts/bulk-approve', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/posts/bulk-approve', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const { postIds } = req.body;
+  const user = req.adminUser;
+  const { postIds } = req.body;
       
       if (!Array.isArray(postIds)) {
         return res.status(400).json({ message: 'Post IDs must be an array' });
@@ -443,14 +547,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get admin stats
-  app.get('/api/admin/stats', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/stats', isAdmin, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: 'Admin access required' });
-      }
-
-      const stats = await storage.getStats();
+  const user = req.adminUser;
+  const stats = await storage.getStats();
       res.json(stats);
     } catch (error) {
       console.error('Error fetching admin stats:', error);
@@ -458,6 +558,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get approved posts (admin only)
+  app.get('/api/admin/posts/approved', isAdmin, async (req: any, res) => {
+    try {
+  const user = req.adminUser;
+  const approvedPosts = await storage.getPosts('approved');
+      res.json(approvedPosts);
+    } catch (error) {
+      console.error('Error fetching approved posts:', error);
+      res.status(500).json({ message: 'Failed to fetch approved posts' });
+    }
+  });
+
+  // Get approved actions (admin only)
+  app.get('/api/admin/actions/approved', isAdmin, async (req: any, res) => {
+    try {
+  const user = req.adminUser;
+  const approvedActions = await storage.getActions(true);
+      res.json(approvedActions);
+    } catch (error) {
+      console.error('Error fetching approved actions:', error);
+      res.status(500).json({ message: 'Failed to fetch approved actions' });
+    }
+  });
+
+  // Delete action (admin only)
+  app.delete('/api/admin/actions/:id', isAdmin, async (req: any, res) => {
+    try {
+  const user = req.adminUser;
+  const { id } = req.params;
+  await storage.deleteAction(id);
+      res.json({ message: 'Action deleted' });
+    } catch (error) {
+      console.error('Error deleting action:', error);
+      res.status(500).json({ message: 'Failed to delete action' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// Extend the Session type to include the user property
+declare module 'express-session' {
+  interface Session {
+    user?: {
+      id: string;
+      email: string;
+      isAdmin: boolean;
+    };
+  }
 }

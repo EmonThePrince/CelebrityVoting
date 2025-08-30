@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import CategoryFilter from "@/components/CategoryFilter";
 import PostCard from "@/components/PostCard";
 import Sidebar from "@/components/Sidebar";
 import SubmissionModal from "@/components/SubmissionModal";
 import { useQuery } from "@tanstack/react-query";
-import type { PostWithVotes } from "@/lib/types";
+import { apiRequest } from "@/lib/queryClient";
+import type { PostWithVotes, ActionType } from "@/lib/types";
 
 export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -13,16 +14,59 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<string>('recent');
   const [isSubmissionModalOpen, setIsSubmissionModalOpen] = useState(false);
 
+  const [selectedAction, setSelectedAction] = useState<string>('');
+
+  const { data: actions = [] } = useQuery<ActionType[]>({
+    queryKey: ['/api/actions'],
+  });
+
   const { data: posts = [], isLoading, refetch } = useQuery<PostWithVotes[]>({
     queryKey: ['/api/posts', { 
       category: selectedCategory === 'all' ? undefined : selectedCategory,
-      sort: sortBy 
+      sort: sortBy,
+      action: selectedAction || undefined
     }],
   });
 
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<
+    { totalPosts: number; totalVotes: number; pendingPosts: number; pendingActions: number },
+    Error
+  >({
     queryKey: ['/api/stats'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/stats');
+      return res.json();
+    },
+  retry: false,
+  staleTime: 60_000, // cache for 1 minute
+  refetchOnWindowFocus: false,
   });
+
+  // debug: help track why stats may be missing
+  // eslint-disable-next-line no-console
+  console.debug('home stats:', stats);
+
+  // One-off debug: fetch raw /api/stats and log result to help debug missing stats in UI
+  // Remove after debugging
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/stats', { credentials: 'include' });
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          // eslint-disable-next-line no-console
+          console.debug('raw /api/stats response:', json);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.debug('raw /api/stats text response (not json):', text);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('fetch /api/stats failed:', err);
+      }
+    })();
+  }, []);
 
   const filteredPosts = posts.filter(post => {
     const matchesSearch = !searchQuery || post.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -46,6 +90,15 @@ export default function Home() {
         selectedCategory={selectedCategory}
         onCategoryChange={setSelectedCategory}
         stats={stats}
+        categoryCounts={(() => {
+          // derive simple per-category counts from the currently loaded posts
+          const counts: Record<string, number> = { film: 0, fictional: 0, political: 0 };
+          for (const p of posts) {
+            const cat = (p.category || '').toString().toLowerCase();
+            if (counts[cat] !== undefined) counts[cat]++;
+          }
+          return counts;
+        })()}
       />
 
       {/* Trending Banner */}
@@ -76,6 +129,19 @@ export default function Home() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-foreground">Celebrity Posts</h3>
               <div className="flex items-center space-x-4">
+                <select 
+                  className="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={selectedAction}
+                  onChange={(e) => setSelectedAction(e.target.value)}
+                  data-testid="select-action"
+                >
+                  <option value="">All Actions</option>
+                  {actions.filter(action => action.approved).map((action) => (
+                    <option key={action.id} value={action.name}>
+                      Most {action.name.charAt(0).toUpperCase() + action.name.slice(1)}ed
+                    </option>
+                  ))}
+                </select>
                 <select 
                   className="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={sortBy}

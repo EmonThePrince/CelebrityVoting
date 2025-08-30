@@ -31,9 +31,8 @@ export default function Header({ searchQuery, onSearchChange, onSubmitClick }: H
           
           {/* Navigation Links */}
           <nav className="hidden md:flex items-center space-x-6">
-            <a href="#home" className="text-foreground hover:text-primary font-medium">Home</a>
-            <a href="#trending" className="text-foreground hover:text-primary font-medium">Trending</a>
-            <a href="#leaderboard" className="text-foreground hover:text-primary font-medium">Leaderboard</a>
+            <a href="/" className="text-foreground hover:text-primary font-medium">Home</a>
+            <a href="/leaderboard" className="text-foreground hover:text-primary font-medium">Leaderboard</a>
             <button 
               className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors"
               onClick={onSubmitClick}
