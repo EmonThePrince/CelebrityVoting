@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,18 +9,79 @@ interface PostCardProps {
   onVoteSuccess: () => void;
 }
 
+declare global {
+  interface Window {
+    grecaptcha?: any;
+  }
+}
+
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string;
+
+async function loadRecaptcha(): Promise<void> {
+  // If v2 already initialized, nothing to do
+  if (window.grecaptcha && typeof window.grecaptcha.render === 'function') return;
+
+  // If a v3-style grecaptcha is present (no render), remove it to allow v2 to initialize
+  if (window.grecaptcha && typeof window.grecaptcha.render !== 'function') {
+    try { delete (window as any).grecaptcha; } catch {}
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+    s.async = true;
+    s.defer = true;
+    s.onload = () => {
+      const start = Date.now();
+      const check = () => {
+        if (window.grecaptcha && typeof window.grecaptcha.render === 'function') {
+          resolve();
+        } else if (Date.now() - start > 5000) {
+          reject(new Error('reCAPTCHA v2 failed to initialize'));
+        } else {
+          setTimeout(check, 50);
+        }
+      };
+      check();
+    };
+    s.onerror = () => reject(new Error('Failed to load reCAPTCHA v2'));
+    document.head.appendChild(s);
+  });
+}
+
 export default function PostCard({ post, onVoteSuccess }: PostCardProps) {
   const { toast } = useToast();
   const [votingAction, setVotingAction] = useState<string | null>(null);
   const [votedActions, setVotedActions] = useState<Set<string>>(new Set());
 
+  const recaptchaContainerRef = useRef<HTMLDivElement | null>(null);
+  const [widgetId, setWidgetId] = useState<number | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
   const { data: actions = [] } = useQuery<ActionType[]>({
     queryKey: ['/api/actions'],
   });
 
+  useEffect(() => {
+    let mounted = true;
+    loadRecaptcha().then(() => {
+      if (!mounted) return;
+      if (recaptchaContainerRef.current && window.grecaptcha && widgetId === null) {
+        const id = window.grecaptcha.render(recaptchaContainerRef.current, {
+          sitekey: recaptchaSiteKey,
+          callback: (token: string) => setCaptchaToken(token),
+          'expired-callback': () => setCaptchaToken(null),
+          'error-callback': () => setCaptchaToken(null),
+        });
+        setWidgetId(id);
+      }
+    });
+    return () => { mounted = false; };
+  }, []);
+
   const voteMutation = useMutation({
-    mutationFn: async ({ actionId, postId }: { actionId: string; postId: string }) => {
-      const response = await apiRequest('POST', `/api/vote/${actionId}`, { postId });
+    mutationFn: async ({ actionId, postId, captchaToken }: { actionId: string; postId: string; captchaToken: string }) => {
+      const response = await apiRequest('POST', `/api/vote/${actionId}`, { postId, captchaToken });
       const data = await response.json();
       return data;
     },
@@ -28,29 +89,21 @@ export default function PostCard({ post, onVoteSuccess }: PostCardProps) {
       const { actionId } = variables;
       const actionName = actions.find(a => a.id === actionId)?.name || '';
       
-      if (data.action === 'removed') {
+      if (data.action === 'already') {
         toast({
-          title: "Vote removed!",
-          description: "Your vote has been removed.",
-        });
-        setVotedActions(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(actionName);
-          return newSet;
+          title: "Already voted",
+          description: "You have already voted for this action.",
         });
       } else {
         toast({
           title: "Vote submitted!",
           description: "Your vote has been counted.",
         });
-        setVotedActions(prev => {
-          const newSet = new Set(prev);
-          newSet.add(actionName);
-          return newSet;
-        });
       }
       onVoteSuccess();
       setVotingAction(null);
+      if (widgetId !== null && window.grecaptcha) { try { window.grecaptcha.reset(widgetId); } catch {} }
+      setCaptchaToken(null);
     },
     onError: (error: Error) => {
       setVotingAction(null);
@@ -59,15 +112,27 @@ export default function PostCard({ post, onVoteSuccess }: PostCardProps) {
         title: "Error",
         description: error.message.includes('Rate limit')
           ? "Please wait before voting again"
-          : "Failed to toggle vote",
+          : "Failed to submit vote",
         variant: "destructive",
       });
+      if (widgetId !== null && window.grecaptcha) { try { window.grecaptcha.reset(widgetId); } catch {} }
+      setCaptchaToken(null);
     },
   });
 
-  const handleVote = (actionId: string, actionName: string) => {
-    setVotingAction(actionName);
-    voteMutation.mutate({ actionId, postId: post.id });
+  const handleVote = async (actionId: string, actionName: string) => {
+    try {
+      setVotingAction(actionName);
+      if (!captchaToken) {
+        toast({ title: 'Captcha required', description: 'Please complete the captcha checkbox.', variant: 'destructive' });
+        setVotingAction(null);
+        return;
+      }
+      voteMutation.mutate({ actionId, postId: post.id, captchaToken });
+    } catch (e) {
+      setVotingAction(null);
+      toast({ title: 'Captcha failed', description: 'Please try again.', variant: 'destructive' });
+    }
   };
 
   const getActionIcon = (actionName: string) => {
@@ -173,6 +238,9 @@ export default function PostCard({ post, onVoteSuccess }: PostCardProps) {
               </span>
             </button>
           ))}
+        </div>
+        <div className="mb-4">
+          <div ref={recaptchaContainerRef}></div>
         </div>
         
         {/* Total Votes */}

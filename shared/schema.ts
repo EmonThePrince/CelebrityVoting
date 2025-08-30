@@ -76,15 +76,14 @@ export const votes = pgTable("votes", {
   postId: varchar("post_id").references(() => posts.id, { onDelete: 'cascade' }).notNull(),
   actionId: varchar("action_id").references(() => actions.id, { onDelete: 'cascade' }).notNull(),
   ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv6 support
+  deviceId: varchar("device_id", { length: 64 }),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("votes_post_id_idx").on(table.postId),
   index("votes_action_id_idx").on(table.actionId),
   index("votes_ip_address_idx").on(table.ipAddress),
   index("votes_created_at_idx").on(table.createdAt),
-  // Unique constraint to prevent duplicate votes from same IP on same post for same action
-  uniqueIndex("votes_unique_idx").on(table.postId, table.actionId, table.ipAddress),
-]);
+  ]);
 
 // Rate limiting table
 export const rateLimits = pgTable("rate_limits", {

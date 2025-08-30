@@ -37,8 +37,8 @@ export interface IStorage {
   // Vote operations
   createVote(vote: InsertVote): Promise<Vote>;
   getPostVotes(postId: string): Promise<{ action: Action; count: number }[]>;
-  hasUserVoted(postId: string, actionId: string, ipAddress: string): Promise<boolean>;
-  deleteVote(postId: string, actionId: string, ipAddress: string): Promise<void>;
+  hasUserVoted(postId: string, actionId: string, deviceId?: string, ipAddress?: string): Promise<boolean>;
+  deleteVote(postId: string, actionId: string, deviceId?: string, ipAddress?: string): Promise<void>;
   
   // Leaderboard operations
   getLeaderboard(actionId: string, limit?: number): Promise<{ post: Post; voteCount: number }[]>;
@@ -261,28 +261,62 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(count(votes.id)));
   }
 
-  async hasUserVoted(postId: string, actionId: string, ipAddress: string): Promise<boolean> {
-    const [vote] = await db
-      .select()
-      .from(votes)
-      .where(
+  async hasUserVoted(postId: string, actionId: string, deviceId?: string, ipAddress?: string): Promise<boolean> {
+    // Prefer device-based check
+    if (deviceId) {
+      const [byDevice] = await db
+        .select()
+        .from(votes)
+        .where(
+          and(
+            eq(votes.postId, postId),
+            eq(votes.actionId, actionId),
+            eq(votes.deviceId, deviceId)
+          )
+        );
+      if (byDevice) return true;
+    }
+
+    // Fallback to IP-based check for legacy rows
+    if (ipAddress) {
+      const [byIp] = await db
+        .select()
+        .from(votes)
+        .where(
+          and(
+            eq(votes.postId, postId),
+            eq(votes.actionId, actionId),
+            eq(votes.ipAddress, ipAddress)
+          )
+        );
+      if (byIp) return true;
+    }
+
+    return false;
+  }
+
+  async deleteVote(postId: string, actionId: string, deviceId?: string, ipAddress?: string): Promise<void> {
+    // Try device-based delete first
+    if (deviceId) {
+      await db.delete(votes).where(
+        and(
+          eq(votes.postId, postId),
+          eq(votes.actionId, actionId),
+          eq(votes.deviceId, deviceId)
+        )
+      );
+    }
+
+    // Also attempt to delete any legacy IP-based row
+    if (ipAddress) {
+      await db.delete(votes).where(
         and(
           eq(votes.postId, postId),
           eq(votes.actionId, actionId),
           eq(votes.ipAddress, ipAddress)
         )
       );
-    return !!vote;
-  }
-
-  async deleteVote(postId: string, actionId: string, ipAddress: string): Promise<void> {
-    await db.delete(votes).where(
-      and(
-        eq(votes.postId, postId),
-        eq(votes.actionId, actionId),
-        eq(votes.ipAddress, ipAddress)
-      )
-    );
+    }
   }
 
   // Leaderboard operations

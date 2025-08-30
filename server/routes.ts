@@ -11,6 +11,7 @@ import { db } from "./db";
 import bcrypt from 'bcrypt';
 import { eq } from "drizzle-orm";
 import { v2 as cloudinary } from 'cloudinary';
+import { nanoid } from 'nanoid';
 
 // Allowed image mime types and extension mapping
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
@@ -53,12 +54,95 @@ const upload = multer({
   },
 });
 
-// Helper function to get client IP
+// Helper functions to get accurate client IP behind proxies/CDNs
+function normalizeIP(ip: string | undefined): string {
+  if (!ip) return '127.0.0.1';
+  // Normalize IPv6-mapped IPv4 and loopback
+  if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+  if (ip === '::1') return '127.0.0.1';
+  return ip;
+}
+
 function getClientIP(req: any): string {
-  return req.headers['x-forwarded-for']?.split(',')[0] || 
-         req.connection?.remoteAddress || 
-         req.socket?.remoteAddress || 
-         '127.0.0.1';
+  // Prefer Cloudflare and reverse proxy headers
+  const cfIp = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
+  if (cfIp) return normalizeIP(cfIp);
+
+  const realIp = (req.headers['x-real-ip'] as string | undefined)?.trim();
+  if (realIp) return normalizeIP(realIp);
+
+  // Express trust proxy aware parsing
+  if (Array.isArray(req.ips) && req.ips.length > 0) {
+    return normalizeIP(req.ips[0]);
+  }
+  if (req.ip) {
+    return normalizeIP(req.ip as string);
+  }
+
+  // Fallback to X-Forwarded-For (first entry is original client)
+  const xffFirst = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  if (xffFirst) return normalizeIP(xffFirst);
+
+  // Lowest-level socket addresses
+  return normalizeIP(req.connection?.remoteAddress || req.socket?.remoteAddress);
+}
+
+// Basic cookie parsing without external middleware
+function parseCookies(req: any): Record<string, string> {
+  const header = (req.headers['cookie'] as string | undefined) || '';
+  const out: Record<string, string> = {};
+  header.split(';').forEach(part => {
+    const [k, ...v] = part.trim().split('=');
+    if (k) out[k] = decodeURIComponent(v.join('='));
+  });
+  return out;
+}
+
+function getOrSetDeviceId(req: any, res: any): string {
+  const cookies = parseCookies(req);
+  let deviceId = cookies['device_id'];
+  if (!deviceId) {
+    deviceId = nanoid(21);
+    const isProd = (process.env.NODE_ENV || 'production') !== 'development';
+    // Set long-lived httpOnly cookie
+    res.cookie('device_id', deviceId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProd,
+      maxAge: 365 * 24 * 60 * 60 * 1000, // 1 year
+      path: '/',
+    });
+  }
+  return deviceId;
+}
+
+// Verify Google reCAPTCHA v3 token
+async function verifyRecaptcha(token: string, ip: string): Promise<boolean> {
+  const secret = process.env.RECAPTCHA_SECRET_KEY as string | undefined;
+  if (!secret) {
+    console.error('RECAPTCHA_SECRET_KEY is not set');
+    return false;
+  }
+  try {
+    const params = new URLSearchParams();
+    params.append('secret', secret);
+    params.append('response', token);
+    if (ip) params.append('remoteip', ip);
+
+    const resp = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+    const data = await resp.json();
+    if (!data.success) return false;
+    // If v3 returns score, enforce a minimal threshold
+    if (typeof data.score === 'number' && data.score < 0.5) return false;
+    return true;
+  } catch (e) {
+    console.error('reCAPTCHA verify error:', e);
+    return false;
+  }
 }
 
 // Get absolute origin (supports proxies)
@@ -280,23 +364,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/vote/:actionId', async (req, res) => {
     try {
       const { actionId } = req.params;
-      const { postId } = req.body;
+      const { postId, captchaToken } = req.body;
       const ipAddress = getClientIP(req);
+      const deviceId = getOrSetDeviceId(req, res);
 
-      // If user already voted for this action on this post, toggle off (remove vote) without rate-limit penalty
-      const alreadyVoted = await storage.hasUserVoted(postId, actionId, ipAddress);
-      if (alreadyVoted) {
-        await storage.deleteVote(postId, actionId, ipAddress);
-        return res.status(200).json({ action: 'removed' });
+      if (!captchaToken) {
+        return res.status(400).json({ message: 'Missing captcha token' });
+      }
+      const captchaOk = await verifyRecaptcha(captchaToken, ipAddress);
+      if (!captchaOk) {
+        return res.status(403).json({ message: 'Captcha verification failed' });
       }
 
-      // Rate limiting check
-      const canVote = await storage.checkRateLimit(ipAddress, 'vote', 5, 1); // 5 votes per minute
-      if (!canVote) {
-        return res.status(429).json({ message: 'Rate limit exceeded. Please wait before voting again.' });
-      }
+      // Allow repeated votes: no toggling, no rate limiting
 
-      
       // Validate post and action exist
       const post = await storage.getPostById(postId);
       const action = await storage.getActionById(actionId);
@@ -313,9 +394,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         postId,
         actionId,
         ipAddress,
+        deviceId,
       });
-
-      await storage.incrementRateLimit(ipAddress, 'vote');
 
       res.status(201).json(vote);
     } catch (error) {
