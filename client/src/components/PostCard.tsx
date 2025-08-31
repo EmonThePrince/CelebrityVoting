@@ -185,7 +185,7 @@ export default function PostCard({ post, onVoteSuccess }: PostCardProps) {
         <img 
           src={post.imageUrl} 
           alt={post.name}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain"
           data-testid={`img-post-${post.id}`}
         />
         <div className="absolute top-4 right-4">
